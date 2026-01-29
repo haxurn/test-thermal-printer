@@ -1,0 +1,16 @@
+{
+  "name": "thermal-printer-sdk",
+  "version": "1.0.0",
+  "description": "Node.js SDK for thermal printing via USB and Bluetooth",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-26",
+    "@node-escpos/core": "^0.6.0",
+    "@node-escpos/usb-adapter": "^0.3.1",
+    "@node-escpos/bluetooth-adapter": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/noble": "^0.0.44"
+  }
+}
