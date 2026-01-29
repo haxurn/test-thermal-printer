@@ -8,6 +8,7 @@ class BluetoothDevice {
     this.address = address;
     this.peripheral = null;
     this.characteristic = null;
+    this.encoding = 'utf8'; // Required by ESC/POS Printer
   }
 
   async open() {
@@ -25,7 +26,9 @@ class BluetoothDevice {
             
             for (const service of services) {
               const characteristics = await service.discoverCharacteristicsAsync();
-              const writeChar = characteristics.find(c => c.properties.includes('write') || c.properties.includes('writeWithoutResponse'));
+              const writeChar = characteristics.find(c => 
+                c.properties.includes('write') || c.properties.includes('writeWithoutResponse')
+              );
               
               if (writeChar) {
                 this.characteristic = writeChar;
@@ -44,9 +47,18 @@ class BluetoothDevice {
     });
   }
 
-  write(data) {
-    if (!this.characteristic) throw new Error('Not connected');
-    return this.characteristic.writeAsync(data, false);
+  write(data, encoding, callback) {
+    if (!this.characteristic) {
+      const error = new Error('Not connected');
+      if (callback) return callback(error);
+      throw error;
+    }
+    
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding || 'utf8');
+    
+    this.characteristic.writeAsync(buffer, false)
+      .then(() => callback && callback())
+      .catch(error => callback && callback(error));
   }
 
   async close() {
