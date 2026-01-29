@@ -83,8 +83,15 @@ async function connectBluetooth() {
     }
   }
   
-  console.log('Note: Bluetooth printing not fully implemented due to adapter issues');
-  console.log(`Would connect to: ${address}`);
+  console.log(`Connecting to ${address}...`);
+  try {
+    await printer.connectBluetooth(address);
+    isConnected = true;
+    connectionType = 'Bluetooth';
+    console.log('✓ Bluetooth printer connected');
+  } catch (error) {
+    console.error('Bluetooth connection failed:', error.message);
+  }
 }
 
 async function printText() {

@@ -2,6 +2,62 @@ import { Printer } from '@node-escpos/core';
 import USB from '@node-escpos/usb-adapter';
 import noble from '@abandonware/noble';
 
+// Simple Bluetooth device class for direct connection
+class BluetoothDevice {
+  constructor(address) {
+    this.address = address;
+    this.peripheral = null;
+    this.characteristic = null;
+  }
+
+  async open() {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Connection timeout')), 10000);
+      
+      noble.on('discover', async (peripheral) => {
+        if (peripheral.address === this.address) {
+          clearTimeout(timeout);
+          this.peripheral = peripheral;
+          
+          try {
+            await peripheral.connectAsync();
+            const services = await peripheral.discoverServicesAsync();
+            
+            for (const service of services) {
+              const characteristics = await service.discoverCharacteristicsAsync();
+              const writeChar = characteristics.find(c => c.properties.includes('write') || c.properties.includes('writeWithoutResponse'));
+              
+              if (writeChar) {
+                this.characteristic = writeChar;
+                resolve();
+                return;
+              }
+            }
+            reject(new Error('No writable characteristic found'));
+          } catch (error) {
+            reject(error);
+          }
+        }
+      });
+      
+      noble.startScanning();
+    });
+  }
+
+  write(data) {
+    if (!this.characteristic) throw new Error('Not connected');
+    return this.characteristic.writeAsync(data, false);
+  }
+
+  async close() {
+    if (this.peripheral) {
+      await this.peripheral.disconnectAsync();
+      this.peripheral = null;
+      this.characteristic = null;
+    }
+  }
+}
+
 export class ThermalPrinter {
   constructor() {
     this.printer = null;
@@ -11,6 +67,14 @@ export class ThermalPrinter {
   // USB Connection
   async connectUSB(vendorId, productId) {
     this.device = new USB(vendorId, productId);
+    await this.device.open();
+    this.printer = new Printer(this.device);
+    return this;
+  }
+
+  // Bluetooth Connection
+  async connectBluetooth(address) {
+    this.device = new BluetoothDevice(address);
     await this.device.open();
     this.printer = new Printer(this.device);
     return this;
@@ -38,7 +102,7 @@ export class ThermalPrinter {
     });
   }
 
-  // Print text (USB only for now)
+  // Print text
   async print(text) {
     if (!this.printer) throw new Error('Not connected');
     
@@ -48,7 +112,7 @@ export class ThermalPrinter {
       .close();
   }
 
-  // Print receipt (USB only for now)
+  // Print receipt
   async printReceipt(items, total) {
     if (!this.printer) throw new Error('Not connected');
     
