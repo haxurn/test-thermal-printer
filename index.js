@@ -8,7 +8,6 @@ class BluetoothDevice {
     this.address = address;
     this.peripheral = null;
     this.characteristic = null;
-    this.encoding = 'utf8'; // Required by ESC/POS Printer
   }
 
   async open() {
@@ -47,18 +46,9 @@ class BluetoothDevice {
     });
   }
 
-  write(data, encoding, callback) {
-    if (!this.characteristic) {
-      const error = new Error('Not connected');
-      if (callback) return callback(error);
-      throw error;
-    }
-    
-    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, encoding || 'utf8');
-    
-    this.characteristic.writeAsync(buffer, false)
-      .then(() => callback && callback())
-      .catch(error => callback && callback(error));
+  async writeRaw(data) {
+    if (!this.characteristic) throw new Error('Not connected');
+    return this.characteristic.writeAsync(data, false);
   }
 
   async close() {
@@ -74,6 +64,7 @@ export class ThermalPrinter {
   constructor() {
     this.printer = null;
     this.device = null;
+    this.connectionType = null;
   }
 
   // USB Connection
@@ -81,14 +72,15 @@ export class ThermalPrinter {
     this.device = new USB(vendorId, productId);
     await this.device.open();
     this.printer = new Printer(this.device);
+    this.connectionType = 'USB';
     return this;
   }
 
-  // Bluetooth Connection
+  // Bluetooth Connection (direct)
   async connectBluetooth(address) {
     this.device = new BluetoothDevice(address);
     await this.device.open();
-    this.printer = new Printer(this.device);
+    this.connectionType = 'Bluetooth';
     return this;
   }
 
@@ -116,33 +108,60 @@ export class ThermalPrinter {
 
   // Print text
   async print(text) {
-    if (!this.printer) throw new Error('Not connected');
+    if (!this.device) throw new Error('Not connected');
     
-    this.printer
-      .text(text)
-      .cut()
-      .close();
+    if (this.connectionType === 'USB') {
+      this.printer.text(text).cut().close();
+    } else {
+      // Direct Bluetooth printing with ESC/POS commands
+      const data = Buffer.concat([
+        Buffer.from(text, 'utf8'),
+        Buffer.from('\n'),
+        Buffer.from([0x1D, 0x56, 0x00]) // Cut command
+      ]);
+      await this.device.writeRaw(data);
+    }
   }
 
   // Print receipt
   async printReceipt(items, total) {
-    if (!this.printer) throw new Error('Not connected');
+    if (!this.device) throw new Error('Not connected');
     
-    this.printer
-      .align('center')
-      .text('RECEIPT')
-      .text('--------')
-      .align('left');
-    
-    items.forEach(item => {
-      this.printer.text(`${item.name} - $${item.price}`);
-    });
-    
-    this.printer
-      .text('--------')
-      .text(`Total: $${total}`)
-      .cut()
-      .close();
+    if (this.connectionType === 'USB') {
+      this.printer
+        .align('center')
+        .text('RECEIPT')
+        .text('--------')
+        .align('left');
+      
+      items.forEach(item => {
+        this.printer.text(`${item.name} - $${item.price}`);
+      });
+      
+      this.printer
+        .text('--------')
+        .text(`Total: $${total}`)
+        .cut()
+        .close();
+    } else {
+      // Direct Bluetooth receipt
+      let receipt = '\x1B\x61\x01RECEIPT\n'; // Center align
+      receipt += '--------\n';
+      receipt += '\x1B\x61\x00'; // Left align
+      
+      items.forEach(item => {
+        receipt += `${item.name} - $${item.price}\n`;
+      });
+      
+      receipt += '--------\n';
+      receipt += `Total: $${total}\n`;
+      
+      const data = Buffer.concat([
+        Buffer.from(receipt, 'utf8'),
+        Buffer.from([0x1D, 0x56, 0x00]) // Cut
+      ]);
+      await this.device.writeRaw(data);
+    }
   }
 
   // Disconnect
@@ -151,6 +170,7 @@ export class ThermalPrinter {
       await this.device.close();
       this.device = null;
       this.printer = null;
+      this.connectionType = null;
     }
   }
 }
